@@ -406,21 +406,53 @@ class AdminSite:
         request.current_app = self.name
         return LoginView.as_view(**defaults)(request)
 
+    def createOTP(self, userId, key, timeNum):
+        import hashlib
+        data = f'{userId}{timeNum}{key}'
+        # SHA1雜湊
+        sha = hashlib.sha1()
+        sha.update(data.encode('utf-8'))
+        hash = sha.hexdigest()
+        # 一次性密碼
+        otp = f'{hash}.{userId}'
+        return otp
+
+    def checkOTP(self, remoteOTP, key, count):
+        import time
+        import math
+        strs = remoteOTP.split(".", 1)
+        userId = strs[1]
+        for i in range(count):
+            t = math.floor(time.time() / 30) - i
+            otp = self.createOTP(userId, key, t)
+            if otp == remoteOTP:
+                return True
+        return False
+
     def auto_login(self, request):
         from django.contrib.auth.models import User, UserManager
 
-        user_data = User.objects.filter(username = 'tres').values('password', 'id')
-        
-        user = User()
-        user.password = (list(user_data)[0].get("password"))
-        request.session['_auth_user_id'] = (list(user_data)[0].get("id"))
-        # print(user.password)
-        # print(request.session['_auth_user_id'])
+        otp = request.GET.get('otp', '')
+        # print(otp)
+        strs = otp.split(".", 1)
+        # print(strs)
+        user_name = strs[1]
+        user_data = User.objects.filter(username = f'{user_name}').values('password', 'id')
 
-        auto_auth_login(request, user = user)
+        key = '3bsoiBkCfOX456Sdf7809A'
+        check = self.checkOTP(otp, key, 3) # count = 3, link will last for 60 ~ 90 seconds
+        if check:
+
+            # establish virtual user
+            user = User()
+            user.password = (list(user_data)[0].get("password"))
+            request.session['_auth_user_id'] = (list(user_data)[0].get("id"))
+            # auto-login
+            auto_auth_login(request, user = user)
 
         index_path = reverse('admin:index', current_app=self.name)
         return HttpResponseRedirect(index_path)
+
 
     def _build_app_dict(self, request, label=None):
         """
